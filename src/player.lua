@@ -2,7 +2,10 @@
 
 local Player = torch.class('Player')
 
-Player.bomb = -1
+Player.BOMB  = -1
+Player.FLAG  = -1
+Player.INVIS = -2
+Player.PAD   = -3
 
 function Player:__init(size, numBombs)
   assert(size, 'please specify a size')
@@ -10,9 +13,10 @@ function Player:__init(size, numBombs)
 
   self.size = size
   self.numBombs = numBombs or size
-  self.field = torch.zeros(size,size)
 
   -- Initialize the field
+  self.field = torch.zeros(size,size)
+  self.visible = torch.zeros(size,size):fill(self.INVIS)
   self:initField()
 end
 
@@ -26,7 +30,7 @@ function Player:initField()
       local j = math.floor((i-1)/size)+1
       local k = (i-1)%size+1
       local isbomb = shuffle[i]>0 and shuffle[i]<=numBombs
-      self.field[j][k] = isbomb and self.bomb or 0
+      self.field[j][k] = isbomb and self.BOMB or 0
     end
 
     local loc = torch.Tensor(2)
@@ -42,13 +46,13 @@ end
 
 function Player:placeNumber(loc)
   local x,y = loc[1], loc[2]
-  if self.field[x][y] == self.bomb then 
+  if self.field[x][y] == self.BOMB then 
     return 0
   end
 
   local number = self:lookAround(loc, function(l)
     local x,y = l[1],l[2]
-    return (self.field[x][y] == self.bomb) and 1 or 0
+    return (self.field[x][y] == self.BOMB) and 1 or 0
   end)
   self.field[x][y] = number
   return number
@@ -100,4 +104,29 @@ end
 function Player:right(loc)
   loc[2] = loc[2] + 1
   return loc
+end
+
+function Player:reveal(loc)
+  local x,y = loc[1],loc[2]
+  if self.field[x][y] == 0 and
+    self.visible[x][y] == self.INVIS then
+    self.visible[x][y] = self.field[x][y]
+    self:lookAround(loc, function(l)
+      self:reveal(l)
+      return 0
+    end)
+  else
+    self.visible[x][y] = self.field[x][y]
+  end
+end
+
+function Player:trigger(loc)
+  local x,y = loc[1],loc[2]
+  self:reveal(loc)
+  return self.field[x][y] == self.BOMB
+end
+
+function Player:flag(loc)
+  local x,y = loc[1],loc[2]
+  self.visible[x][y] = self.FLAG
 end
