@@ -2,10 +2,9 @@
 
 local Player = torch.class('Player')
 
-Player.BOMB  = -1
-Player.FLAG  = -1
-Player.INVIS = -2
-Player.PAD   = -3
+Player.INVIS = -1
+Player.BOMB = -2
+Player.FLAG = -2 -- TODO temporary representation
 
 function Player:__init(size, numBombs)
   assert(size, 'please specify a size')
@@ -14,23 +13,29 @@ function Player:__init(size, numBombs)
   self.size = size
   self.numBombs = numBombs or size
 
-  -- Initialize the field
-  self.field = torch.zeros(size,size)
-  self.visible = torch.zeros(size,size):fill(self.INVIS)
-  self:initField()
+  self.field = torch.Tensor(size,size)
+  self.bombs = torch.Tensor(size,size)
+  self.visible = torch.Tensor(size,size)
+  self.flags = torch.Tensor(size,size) 
 end
 
-function Player:initField()
+function Player:resetField()
   local size = self.size
   local numBombs = self.numBombs
   self.field:zero()
+  self.bombs:zero()
+  self.flags:zero()
+  self.visible:fill(self.INVIS)
   if numBombs > 0 then
     local shuffle = torch.randperm(size*size)
     for i=1,size*size do
       local j = math.floor((i-1)/size)+1
       local k = (i-1)%size+1
       local isbomb = shuffle[i]>0 and shuffle[i]<=numBombs
-      self.field[j][k] = isbomb and self.BOMB or 0
+      if isbomb then
+        self.field[j][k] = self.BOMB
+        self.bombs[j][k] = 1
+      end
     end
 
     local loc = torch.Tensor(2)
@@ -108,25 +113,50 @@ end
 
 function Player:reveal(loc)
   local x,y = loc[1],loc[2]
-  if self.field[x][y] == 0 and
-    self.visible[x][y] == self.INVIS then
+  local isZero  = self.field[x][y] == 0
+  local isInvis = self.visible[x][y] == self.INVIS
+  local isFlag  = self.flags[x][y] == 1
+  if isZero and isInvis and not isFlag then
     self.visible[x][y] = self.field[x][y]
     self:lookAround(loc, function(l)
       self:reveal(l)
       return 0
     end)
-  else
+  elseif isInvis and not isFlag then
     self.visible[x][y] = self.field[x][y]
   end
 end
 
+function Player:loc2xy(loc)
+  local x,y
+  if torch.isTensor(loc) then
+    x,y = loc[1], loc[2]
+  else
+    x = math.ceil(loc/self.size)
+    y = (loc-1)%self.size+1
+    loc = torch.Tensor{x,y}
+  end
+  return loc, x, y
+end
+
 function Player:trigger(loc)
-  local x,y = loc[1],loc[2]
+  local x,y
+  loc,x,y = self:loc2xy(loc)
+  if self.visible[x][y] ~= self.INVIS then
+    error('ERROR: Revealing an already revealed cell (' .. x .. ', ' .. y .. ')')
+  end
+  --print('Revealing ' .. x .. ' ' .. y)
   self:reveal(loc)
   return self.field[x][y] == self.BOMB
 end
 
 function Player:flag(loc)
-  local x,y = loc[1],loc[2]
-  self.visible[x][y] = self.FLAG
+  local x,y
+  loc,x,y = self:loc2xy(loc)
+  if self.visible[x][y] ~= self.INVIS then
+    error('ERROR: Flagging a visible cell (' .. x .. ', ' .. y .. ')')
+  end
+  self.flags[x][y] = 1
+  --print('Flagging ' .. x .. ' ' .. y)
 end
+
