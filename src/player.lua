@@ -14,9 +14,10 @@ function Player:__init(size, numBombs)
   self.numBombs = numBombs or size
 
   self.field = torch.Tensor(size,size)
-  self.bombs = torch.Tensor(size,size)
   self.visible = torch.Tensor(size,size)
-  self.flags = torch.Tensor(size,size) 
+  self.bombs = torch.Tensor(size,size)
+  self.flags = torch.ByteTensor(size,size) 
+  self.numFlags = 0
 end
 
 function Player:resetField()
@@ -26,6 +27,7 @@ function Player:resetField()
   self.bombs:zero()
   self.flags:zero()
   self.visible:fill(self.INVIS)
+  self.numFlags = 0
   if numBombs > 0 then
     local shuffle = torch.randperm(size*size)
     for i=1,size*size do
@@ -157,6 +159,22 @@ function Player:flag(loc)
     error('ERROR: Flagging a visible cell (' .. x .. ', ' .. y .. ')')
   end
   self.flags[x][y] = 1
+  self.numFlags = self.numFlags + 1
   --print('Flagging ' .. x .. ' ' .. y)
+end
+
+function Player:triggerMin(scores)
+  -- Ignore bombs and revealed cells in argmin
+  local invis = torch.ne(self.visible,self.INVIS)
+  local mask = torch.cbitor(self.bombs:byte(), invis)
+  --print('visible:')
+  --print(self.visible)
+  --print(invis)
+  --print('bombs:')
+  --print(self.bombs:byte())
+  --print(mask)
+  scores[mask] = 1
+  local min, argmin = scores:min(1)
+  self:trigger(argmin[1])
 end
 
