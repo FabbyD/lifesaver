@@ -6,18 +6,43 @@ Player.INVIS = -1
 Player.BOMB = -2
 Player.FLAG = -2 -- TODO temporary representation
 
-function Player:__init(size, numBombs)
+function Player:__init(size, numBombs, type)
   assert(size, 'please specify a size')
   assert(numBombs <= size^2, 'too many bombs')
-
+  
   self.size = size
   self.numBombs = numBombs or size
+  self.type = type
 
   self.field = torch.Tensor(size,size)
   self.visible = torch.Tensor(size,size)
   self.bombs = torch.Tensor(size,size)
-  self.flags = torch.ByteTensor(size,size) 
+  self.flags = torch.Tensor(size,size) 
   self.numFlags = 0
+end
+
+function Player:randomField(fix)
+  if fix then
+    torch.manualSeed(0)
+  end
+  local shuffle = torch.randperm(size*size)
+  for i=1,size*size do
+    local j = math.floor((i-1)/size)+1
+    local k = (i-1)%size+1
+    local isbomb = shuffle[i]>0 and shuffle[i]<=numBombs
+    if isbomb then
+      self.field[j][k] = self.BOMB
+      self.bombs[j][k] = 1
+    end
+  end
+end
+
+function Player:easyCorners()
+  local corner = math.random(0,3)
+  local i = math.floor(corner/2)*(self.size-1)+1
+  local j = (corner%2)*(self.size-1)+1
+  self.field[i][j] = self.BOMB
+  self.bombs[i][j] = 1
 end
 
 function Player:resetField()
@@ -29,17 +54,18 @@ function Player:resetField()
   self.visible:fill(self.INVIS)
   self.numFlags = 0
   if numBombs > 0 then
-    local shuffle = torch.randperm(size*size)
-    for i=1,size*size do
-      local j = math.floor((i-1)/size)+1
-      local k = (i-1)%size+1
-      local isbomb = shuffle[i]>0 and shuffle[i]<=numBombs
-      if isbomb then
-        self.field[j][k] = self.BOMB
-        self.bombs[j][k] = 1
-      end
+    -- place bombs
+    if self.type == 0 then
+      self:randomField(false)
+    elseif self.type == 1 then
+      self:randomField(true)
+    elseif self.type == 2 then
+      self:easyCorners()
+    else
+      error('unknown type')
     end
 
+    -- place numbers around
     local loc = torch.Tensor(2)
     for i=1,size do
       loc[1] = i
@@ -142,8 +168,7 @@ function Player:loc2xy(loc)
 end
 
 function Player:trigger(loc)
-  local x,y
-  loc,x,y = self:loc2xy(loc)
+  local loc,x,y = self:loc2xy(loc)
   if self.visible[x][y] ~= self.INVIS then
     error('ERROR: Revealing an already revealed cell (' .. x .. ', ' .. y .. ')')
   end
@@ -153,8 +178,7 @@ function Player:trigger(loc)
 end
 
 function Player:flag(loc)
-  local x,y
-  loc,x,y = self:loc2xy(loc)
+  local loc,x,y = self:loc2xy(loc)
   if self.visible[x][y] ~= self.INVIS then
     error('ERROR: Flagging a visible cell (' .. x .. ', ' .. y .. ')')
   end

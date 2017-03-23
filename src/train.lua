@@ -7,9 +7,10 @@ cmd:text('Training Lifesaver - a neural Minesweeper')
 cmd:text()
 cmd:text('Options')
 cmd:option('-size', 15, 'The size of the field')
-cmd:option('-bombs', 50, 'Number of bombs')
-cmd:option('-t', 0.5, 'Bomb certainty level')
+cmd:option('-bombs', 40, 'Number of bombs')
+cmd:option('-t', 0.55, 'Bomb certainty level')
 cmd:option('-games', 1000, 'Number of games to play')
+cmd:option('-type', 0, '0: random, 1: fix, 2: easy corners')
 cmd:text()
 
 local opts = cmd:parse(arg)
@@ -17,15 +18,21 @@ local opts = cmd:parse(arg)
 local optim = require 'optim'
 local models = require 'models'
 
+if opts.type == 2 then
+  print('Warning: Hijacking size and number of bombs for easy corners!')
+  opts.size = 3
+  opts.bombs = 1
+end
+
 local size = opts.size
 local numBombs = opts.bombs
 local threshold = opts.t
 local numCells = size*size
 
-local player = Player(size, numBombs)
+local player = Player(size, numBombs, opts.type)
 local net = models.ffnn(numCells, numCells, numCells*2)
 local criterion = nn.BCECriterion() -- Binary Cross Entropy for Sigmoid output layer
-local config = {learningRate=0.001} -- optim config
+local config = {learningRate=0.01} -- optim config
 
 local field   = player.field
 local bombs   = player.bombs
@@ -70,23 +77,36 @@ local function train()
   local sumLoss = 0
   local rounds = 0
   while not done do
-    local input = visible:view(-1) -- flatten
+    local input = {visible:view(-1), flags:view(-1)}
     local invis = torch.eq(visible, player.INVIS)
-    local mask = torch.cbitxor(invis,bombs:byte())
-    if mask:sum() == 0 then -- everything is revealed or bombs
+    local mask = torch.cbitxor(invis,flags:byte())
+    if mask:sum() == 0 then -- everything is revealed or flagged
       done = true
     else
       rounds = rounds + 1
+      -- Forward backward
       local output = net:forward(input)
+      local target = bombs:view(-1)
+      sumLoss = sumLoss + criterion:forward(output, target)
+      local gradOutput = criterion:backward(output, target)
+      net:backward(input, gradOutput)
+
+      -- Log
       outfh:write('Round ' .. rounds .. '\n')
       outfh:write(field2string(visible) .. '\n\n')
       outfh:write(field2string(output:view(size,size)) .. '\n\n')
-      local target = bombs:view(-1)
-      local loss = criterion:forward(output, target)
-      sumLoss = sumLoss + loss
-      local gradOutput = criterion:backward(output, target)
-      net:backward(input, gradOutput)
-      player:triggerMin(output)
+      
+      -- Play the game (with a little help from oracle)
+      local unflaggedBombs = torch.cbitxor(bombs:byte(),flags:byte())
+      local ufbScores = torch.cmul(unflaggedBombs:view(-1):double(),output)
+      local max,argmax = ufbScores:max(1)
+      local mask = torch.cbitxor(invis,bombs:byte())
+      if max[1] >= threshold or mask:sum() == 0 then
+        player:flag(argmax[1])
+      else
+        player:triggerMin(output)
+      end
+
     end
   end
   return sumLoss
