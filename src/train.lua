@@ -1,6 +1,9 @@
 require 'nn'
 require 'player'
 
+local optim = require 'optim'
+local models = require 'models'
+
 local cmd = torch.CmdLine()
 cmd:text()
 cmd:text('Training Lifesaver - a neural Minesweeper')
@@ -15,9 +18,6 @@ cmd:text()
 
 local opts = cmd:parse(arg)
 
-local optim = require 'optim'
-local models = require 'models'
-
 if opts.type == 2 then
   print('Warning: Hijacking size and number of bombs for easy corners!')
   opts.size = 3
@@ -30,10 +30,13 @@ local threshold = opts.t
 local numCells = size*size
 
 local player = Player(size, numBombs, opts.type)
-local net = models.ffnn(numCells, numCells, numCells*2)
 local criterion = nn.BCECriterion() -- Binary Cross Entropy for Sigmoid output layer
-local config = {learningRate=0.01} -- optim config
 
+local net = models.ffnn(numCells, numCells, numCells*2)
+local params, gradParams = net:getParameters()
+local outfh = io.open('outputs.txt', 'w')
+
+-- Shortcuts
 local field   = player.field
 local bombs   = player.bombs
 local visible = player.visible
@@ -45,6 +48,7 @@ print(net)
 print('## Setup:')
 print('Size :     ' .. size)
 print('Bombs:     ' .. numBombs)
+print('Type:      ' .. opts.type)
 print('Threshold: ' .. threshold)
 print('Number of games: ' .. opts.games)
 
@@ -68,9 +72,6 @@ local function field2string(field)
     :gsub('(%d+%.%d)%d*', '%1') -- keep 1 digit only
   return str
 end
-
-local params, gradParams = net:getParameters()
-local outfh = io.open('outputs.txt', 'w')
 
 local function train()
   local done = false
@@ -126,6 +127,7 @@ end
 local wins = 0
 local currWins = 0
 local cumulLoss = 0
+local config = {learningRate=0.01} -- optim config
 for g=1,opts.games do
   player:resetField()
   outfh:write('### Game ' .. g .. '\n')
