@@ -4,9 +4,9 @@ require('point')
 
 local Player = torch.class('Player')
 
-Player.INVIS = -1
-Player.BOMB = -2
-Player.FLAG = -3 -- TODO temporary representation
+Player.INVIS = 9
+Player.BOMB = 10
+Player.FLAG = 11 -- TODO temporary representation
 
 function Player:__init(size, numBombs, type)
   assert(size, 'please specify a size')
