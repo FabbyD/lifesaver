@@ -1,18 +1,20 @@
 --[[ Player module to start minesweeper games ]]
 
+require('point')
+
 local Player = torch.class('Player')
 
 Player.INVIS = -1
 Player.BOMB = -2
-Player.FLAG = -2 -- TODO temporary representation
+Player.FLAG = -3 -- TODO temporary representation
 
 function Player:__init(size, numBombs, type)
   assert(size, 'please specify a size')
-  assert(numBombs <= size^2, 'too many bombs')
+  assert(numBombs < size^2, 'too many bombs')
   
   self.size = size
   self.numBombs = numBombs or size
-  self.type = type
+  self.type = type or 0
 
   self.field = torch.Tensor(size,size)
   self.visible = torch.Tensor(size,size)
@@ -21,7 +23,19 @@ function Player:__init(size, numBombs, type)
   self.numFlags = 0
 end
 
-function Player:randomField(fix)
+function Player:printField(field)
+  field = field or self.field
+  local s = tostring(field)
+    :gfind('(.+)\n%[')()
+    :gsub('^','  ')
+    :gsub('\n','\n  ')
+    :gsub('(%d+%.%d)%d*', '%1') -- keep 1 digit only
+  print(s)
+end
+
+function Player:placeBombs(fix)
+  local size = self.size
+  local numBombs = self.numBombs
   if fix then
     torch.manualSeed(0)
   end
@@ -56,9 +70,9 @@ function Player:resetField()
   if numBombs > 0 then
     -- place bombs
     if self.type == 0 then
-      self:randomField(false)
+      self:placeBombs(false)
     elseif self.type == 1 then
-      self:randomField(true)
+      self:placeBombs(true)
     elseif self.type == 2 then
       self:easyCorners()
     else
@@ -66,123 +80,86 @@ function Player:resetField()
     end
 
     -- place numbers around
-    local loc = torch.Tensor(2)
+    local point = Point(1,1)
     for i=1,size do
-      loc[1] = i
+      point.y = i
       for j=1,size do
-        loc[2] = j
-        self:placeNumber(loc)
+        point.x = j
+        self:placeNumber(point)
       end
     end
   end
 end
 
-function Player:placeNumber(loc)
-  local x,y = loc[1], loc[2]
-  if self.field[x][y] == self.BOMB then 
+function Player:placeNumber(point)
+  if self.field[point.x][point.y] == self.BOMB then 
     return 0
   end
 
-  local number = self:lookAround(loc, function(l)
-    local x,y = l[1],l[2]
-    return (self.field[x][y] == self.BOMB) and 1 or 0
+  local number = self:lookAround(point, function(p)
+    return (self.field[p.x][p.y] == self.BOMB) and 1 or 0
   end)
-  self.field[x][y] = number
+  self.field[point.x][point.y] = number
   return number
 end
 
-function Player:checkLoc(loc)
-  return loc[1] > 0 and loc[1] <= self.size 
-     and loc[2] > 0 and loc[2] <= self.size
+function Player:checkLoc(point)
+  return point.x > 0 and point.x <= self.size 
+     and point.y > 0 and point.y <= self.size
 end
 
-function Player:lookAround(loc, func)
-  local function apply(l)
-    if self:checkLoc(l) then
-      return func(l)
+function Player:lookAround(point, func)
+  local function apply(p)
+    if self:checkLoc(p) then
+      return func(p)
     else
       return 0
     end
   end
 
   local res = 0
-  local nloc = loc:clone() -- create a new pointer
-  self:left(nloc);  res = res + apply(nloc)
-  self:down(nloc);  res = res + apply(nloc)
-  self:right(nloc); res = res + apply(nloc)
-  self:right(nloc); res = res + apply(nloc)
-  self:up(nloc);    res = res + apply(nloc)
-  self:up(nloc);    res = res + apply(nloc)
-  self:left(nloc);  res = res + apply(nloc)
-  self:left(nloc);  res = res + apply(nloc)
+  local p = Point(point.x, point.y) -- create a new pointer
+  p:left();  res = res + apply(p)
+  p:down();  res = res + apply(p)
+  p:right(); res = res + apply(p)
+  p:right(); res = res + apply(p)
+  p:up();    res = res + apply(p)
+  p:up();    res = res + apply(p)
+  p:left();  res = res + apply(p)
+  p:left();  res = res + apply(p)
 
   return res
 end
 
-function Player:up(loc)
-  loc[1] = loc[1] - 1
-  return loc
-end
-
-function Player:down(loc)
-  loc[1] = loc[1] + 1
-  return loc
-end
-
-function Player:left(loc)
-  loc[2] = loc[2] - 1
-  return loc
-end
-
-function Player:right(loc)
-  loc[2] = loc[2] + 1
-  return loc
-end
-
-function Player:reveal(loc)
-  local x,y = loc[1],loc[2]
-  local isZero  = self.field[x][y] == 0
-  local isInvis = self.visible[x][y] == self.INVIS
-  local isFlag  = self.flags[x][y] == 1
+function Player:reveal(point)
+  local isZero  = self.field[point.x][point.y] == 0
+  local isInvis = self.visible[point.x][point.y] == self.INVIS
+  local isFlag  = self.flags[point.x][point.y] == 1
   if isZero and isInvis and not isFlag then
-    self.visible[x][y] = self.field[x][y]
-    self:lookAround(loc, function(l)
-      self:reveal(l)
+    self.visible[point.x][point.y] = self.field[point.x][point.y]
+    self:lookAround(point, function(p)
+      self:reveal(p)
       return 0
     end)
   elseif isInvis and not isFlag then
-    self.visible[x][y] = self.field[x][y]
+    self.visible[point.x][point.y] = self.field[point.x][point.y]
   end
 end
 
-function Player:loc2xy(loc)
-  local x,y
-  if torch.isTensor(loc) then
-    x,y = loc[1], loc[2]
-  else
-    x = math.ceil(loc/self.size)
-    y = (loc-1)%self.size+1
-    loc = torch.Tensor{x,y}
-  end
-  return loc, x, y
-end
-
-function Player:trigger(loc)
-  local loc,x,y = self:loc2xy(loc)
-  if self.visible[x][y] ~= self.INVIS then
-    error('ERROR: Revealing an already revealed cell (' .. x .. ', ' .. y .. ')')
+function Player:trigger(point)
+  if self.visible[point.x][point.y] ~= self.INVIS then
+    error('ERROR: Revealing an already revealed cell (' .. point.x .. ', ' .. point.y .. ')')
   end
   --print('Revealing ' .. x .. ' ' .. y)
-  self:reveal(loc)
-  return self.field[x][y] == self.BOMB
+  self:reveal(point)
+  return self.field[point.x][point.y] == self.BOMB
 end
 
-function Player:flag(loc)
-  local loc,x,y = self:loc2xy(loc)
-  if self.visible[x][y] ~= self.INVIS then
-    error('ERROR: Flagging a visible cell (' .. x .. ', ' .. y .. ')')
+function Player:flag(point)
+  if self.visible[point.x][point.y] ~= self.INVIS then
+    error('ERROR: Flagging a visible cell (' .. point.x .. ', ' .. point.y .. ')')
   end
-  self.flags[x][y] = 1
+  self.flags[point.x][point.y] = 1
   self.numFlags = self.numFlags + 1
   --print('Flagging ' .. x .. ' ' .. y)
 end
