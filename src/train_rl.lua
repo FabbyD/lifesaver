@@ -11,11 +11,8 @@ cmd:text()
 cmd:text('Options')
 cmd:option('-size', 15, 'The size of the field')
 cmd:option('-bombs', 40, 'Number of bombs')
-cmd:option('-t', 0.55, 'Bomb certainty level')
 cmd:option('-games', 1000, 'Number of games to play')
 cmd:option('-type', 0, '0: random, 1: fix, 2: easy corners')
-cmd:option('-norm', true, 'normalize the input')
-cmd:option('-loss', 'BCE', 'loss function (BCE, Margin)')
 cmd:text()
 
 local opts = cmd:parse(arg)
@@ -26,11 +23,6 @@ if opts.type == 2 then
   opts.bombs = 1
 end
 
-if opts.loss == 'Margin' then
-  opts.t = 2*opts.t - 1
-  print('Warning: Rescaling threshold to: ' .. opts.t)
-end
-
 cmd:log('log.txt', opts)
 
 local size = opts.size
@@ -39,57 +31,21 @@ local threshold = opts.t
 local numCells = size*size
 
 local player = Player(size, numBombs, opts.type)
-local criterion
-if opts.loss == 'BCE' then
-  criterion = nn.BCECriterion()
-elseif opts.loss == 'Margin' then
-  criterion = nn.MarginCriterion()
-elseif opts.loss == 'MSE' then
-  criterion = nn.MSECriterion()
-else
-  error('unknown loss function')
-end
+
+-- TODO make cnn
 local net = models.ffnn(opts.loss, numCells, numCells, 2*numCells)
 
 local params, gradParams = net:getParameters()
 local outfh = io.open('outputs.txt', 'w')
 
 -- Shortcuts
-local field   = player.field
-local bombs   = player.bombs
-local visible = player.visible
-local flags   = player.flags
+--local field   = player.field
+--local bombs   = player.bombs
+--local visible = player.visible
+--local flags   = player.flags
 
 print('## Architecture:')
 print(net)
-
---print('## Setup:')
---print('Size :     ' .. size)
---print('Bombs:     ' .. numBombs)
---print('Type:      ' .. opts.type)
---print('Threshold: ' .. threshold)
---print('Number of games: ' .. opts.games)
-
-local function findNthElem(t, n, elem)
-  local count = 0
-  for i=1,t:size(1) do
-    if t[i] == elem then
-      count = count + 1
-      if count == n then
-        return i
-      end
-    end
-  end
-end
-
-local function field2string(field)
-  local str = tostring(field)
-    :gfind('(.+)\n%[')()
-    :gsub('^','  ')
-    :gsub('\n','\n  ')
-    :gsub('(%d+%.%d)%d*', '%1') -- keep 1 digit only
-  return str
-end
 
 local function train()
   local done = false
@@ -152,7 +108,7 @@ local function evaluate()
     local done = false
     while not done do
       local input = visible:view(-1)
-
+      done = true
     end
   end
 end
